@@ -130,7 +130,8 @@ FinalMLP:
     model: FinalMLP
     dataset_id: toss_ctr_v1
     loss: binary_crossentropy
-    metrics: ['logloss', 'AUC']
+    # metrics: ['logloss', 'AUC']
+    metrics: ['logloss', 'AUC', 'WLL', 'AP']
     task: binary_classification
     optimizer: adam
     learning_rate: 1.e-3
@@ -154,5 +155,7 @@ FinalMLP:
     epochs: 100
     shuffle: True
     seed: 20222023
-    monitor: {'AUC': 1, 'logloss': -1}
-    monitor_mode: 'max'
+    # monitor: {'AUC': 1, 'logloss': -1}
+    # monitor_mode: 'max'
+    monitor: 'WLL' 
+    monitor_mode: 'min'
