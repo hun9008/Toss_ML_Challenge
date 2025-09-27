@@ -99,7 +99,7 @@ if __name__ == '__main__':
         # sample_submission.csv을 불러와 같은 순서로 clicked 채우기
         # (경로는 본인 폴더 구조에 맞게 하나만 쓰면 됩니다)
         # 1) 대회 제공 sample_submission.csv가 data_root에 있을 때:
-        cand1 = os.path.join(params['data_root'], "sample_submission.csv")
+        cand1 = os.path.join(params['data_root'], "../../data/toss_ctr_v1/sample_submission.csv")
         # 2) dataset 폴더에 있을 때:
         cand2 = os.path.join(params['data_root'], params['dataset_id'], "sample_submission.csv")
         sample_path = cand1 if os.path.exists(cand1) else cand2

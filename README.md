@@ -88,3 +88,47 @@ clicked : 광고를 클릭할 확률 (0 ~ 1)
 ※ 주최측의 내부 보안 정책에 따라 피처의 상세 의미는 의도적으로 공개하지 않으며 제시된 정보 내에서만 진행해야합니다.
 
 ※ 제공드리는 데이터를 엑셀로 열람하는 경우, 데이터가 비정상적으로 보이는 현상이 발생할 수 있으니 반드시 Pandas패키지와 같은 데이터툴을 이용하여 열람부탁드립니다.
+
+python run_expid.py --expid FinalMLP_test --gpu 0
+
+# How to use FuxiCTR
+
+## env settings
+
+python >= 3.10 으로 알고 있음.
+
+```
+cd FuxiCTR
+pip install -r requirements.txt
+
+# python 3.12 기준 아래 라이브러리 업데이트 필요
+pip install "numpy<2.0" "scikit-learn<1.4"
+
+# 라이브러리 등록 필요
+pip install -e .
+```
+
+## data settings
+
+~/FuxiCTR/data/ 폴더에 train.parquet, test.parquet, sample_submission.csv 파일 필요. (default 로는 valid.parquet 도 필요)
+
+## run 
+
+실행은 ~/FuxiCTR/model_zoo/ 안의 모델 폴더까지 들어가서 실행해야 하며
+각 모델 폴더 내의 config/ 내의 .yaml 파일 수정 필요.
+
+config (FinalMLP 모델을 예시로 설명)
+```
+# dataset_config 안에서 데이터셋경로 지정 필요
+~/model_zoo/FinalMLP/config/dataset_config.yaml
+
+# model_config 안에서 모델 파라미터 지정 가능
+# 실행되는 모델은 model_config 안의 class_name 으로 지정됨
+~/model_zoo/FinalMLP/config/model_config.yaml
+```
+
+run 예시
+```
+# ~/FuxiCTR/model_zoo/FinalMLP/ 에서 실행
+python run_expid.py --expid FinalMLP --gpu 0
+```
