@@ -1,2 +1,4 @@
 open.zip
 data/*
+FuxiCTR/data/*
+FinalMLP/checkpoints/*

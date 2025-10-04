@@ -96,13 +96,10 @@ if __name__ == '__main__':
         y_pred = np.clip(y_pred, 1e-6, 1 - 1e-6)
         y_pred = np.round(y_pred, 8)
 
-        # sample_submission.csv을 불러와 같은 순서로 clicked 채우기
-        # (경로는 본인 폴더 구조에 맞게 하나만 쓰면 됩니다)
-        # 1) 대회 제공 sample_submission.csv가 data_root에 있을 때:
-        cand1 = os.path.join(params['data_root'], "../../data/toss_ctr_v1/sample_submission.csv")
-        # 2) dataset 폴더에 있을 때:
+        time_str = datetime.now().strftime('%d_%H_%M')
+
         cand2 = os.path.join(params['data_root'], params['dataset_id'], "sample_submission.csv")
-        sample_path = cand1 if os.path.exists(cand1) else cand2
+        sample_path = cand2
 
         import pandas as pd
         if os.path.exists(sample_path):
@@ -110,20 +107,19 @@ if __name__ == '__main__':
             assert len(sub) == len(y_pred), \
                 f"Length mismatch: sample_submission({len(sub)}) vs y_pred({len(y_pred)})"
             sub["clicked"] = y_pred
-            out_path = os.path.join(params['data_root'], params['dataset_id'],
-                                    f"{params['model_id']}_submission.csv")
+            # ⬇⬇ 수정: 시간 붙여 저장
+            out_path = os.path.join(
+                params['data_root'], params['dataset_id'],
+                f"{params['model_id']}_{time_str}_submission.csv"
+            )
             sub.to_csv(out_path, index=False, float_format='%.8f')
             logging.info(f"Submission saved to: {out_path}")
         else:
-            # fallback: sample_submission이 없으면 ID를 원본 test에서 읽어서 씁니다
-            # (원본 test.parquet는 data_dir 상위에 있고, 전처리된 test는 dataset_id 폴더에 있음)
-            data_dir = os.path.join(params['data_root'], params['dataset_id'])
-            # 원칙적으로는 '원본 test.parquet'의 ID 순서와 동일해야 합니다.
-            # 만약 원본이 data_root/test.parquet 라면 여기를 맞춰 주세요.
-            # 여기선 간단 Fallback: ID = 0..N-1
             logging.warning("sample_submission.csv not found. Writing fallback submission with incremental ID.")
-            out_path = os.path.join(params['data_root'], params['dataset_id'],
-                                    f"{params['model_id']}_submission.csv")
+            out_path = os.path.join(
+                params['data_root'], params['dataset_id'],
+                f"{params['model_id']}_{time_str}_submission.csv"   # ⬅ fallback도 동일 규칙
+            )
             pd.DataFrame({"ID": np.arange(len(y_pred)), "clicked": y_pred}).to_csv(out_path, index=False)
             logging.info(f"Submission saved to: {out_path}")
     else:

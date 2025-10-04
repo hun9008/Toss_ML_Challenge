@@ -1,182 +1,200 @@
 import pandas as pd
-import numpy as np
+from sklearn.model_selection import train_test_split
 from pathlib import Path
+import json
+import numpy as np
 from sklearn.preprocessing import LabelEncoder
 
-# -----------------------
-# 0) 경로/설정
-# -----------------------
-in_dir  = Path("./raw")     # 원본 train/test 위치
-out_dir = Path("./")        # 최종 .parquet 저장 위치
+# ======================
+# 1) Paths & Load
+# ======================
+data_dir = Path('/home/hun/CTR_Prediction/Toss_ML_Challenge/data')
+FuxiCTR_data_dir = Path("/home/hun/CTR_Prediction/Toss_ML_Challenge/FuxiCTR/data")
+dataset_id = 'toss_ctr_v3'
+out_dir = FuxiCTR_data_dir / dataset_id
 out_dir.mkdir(parents=True, exist_ok=True)
 
-train_path = in_dir / "raw_train.parquet"
-test_path  = in_dir / "raw_test.parquet"
+all_train = pd.read_parquet(data_dir / 'train.parquet', engine='pyarrow')
+test_df  = pd.read_parquet(data_dir / 'test.parquet',  engine='pyarrow')  # ID/seq 유지
+print("Train shape:", all_train.shape)
+print("Test shape:",  test_df.shape)
 
-target_col = "clicked"
-seq_col    = "seq"
-FEATURE_EXCLUDE = {target_col, seq_col, "ID"}
+# ======================
+# 2) Split (전체 데이터 사용, 다운샘플링 없음)
+# ======================
+label_col = 'clicked'
+assert label_col in all_train.columns, "clicked 라벨이 필요합니다."
 
-# 이 모델이 기대하는 범주형 고정 셋
-cat_cols_fixed = ["gender","age_group","inventory_id","l_feat_14"]
+train_df, valid_df = train_test_split(
+    all_train,
+    test_size=0.1,
+    random_state=42,
+    stratify=all_train[label_col]
+)
+print("Train split shape:", train_df.shape)
+print("Valid split shape:", valid_df.shape)
 
-# -----------------------
-# 1) 로드
-# -----------------------
-train = pd.read_parquet(train_path, engine="pyarrow")
-test  = pd.read_parquet(test_path,  engine="pyarrow")
+# ======================
+# 3) Feature sets (PyTorch 코드와 동일 정책)
+# ======================
+seq_col = "seq"
+FEATURE_EXCLUDE = {label_col, seq_col, "ID"}
 
-# -----------------------
-# 2) 기본 클린업
-# -----------------------
-# ID 제거(샘플 식별자라면)
-for df in (train, test):
-    if "ID" in df.columns:
-        df.drop(columns=["ID"], inplace=True, errors="ignore")
+# PyTorch 코드에서 명시한 카테고리 컬럼만 사용
+cat_cols = ["gender", "age_group", "inventory_id", "l_feat_14"]
 
-# seq 보정: 존재/문자열화/NaN -> ""
-def ensure_seq_string(df: pd.DataFrame, seq_col: str):
-    if seq_col not in df.columns:
-        # 없으면 빈 문자열로 채운 새 컬럼 생성
-        df[seq_col] = ""
-    else:
-        df[seq_col] = df[seq_col].astype(str).fillna("")
-    return df
+# feature_cols = 라벨/seq/ID 제외 전 컬럼
+all_cols = sorted(set(train_df.columns) | set(valid_df.columns))
+feature_cols = [c for c in all_cols if c not in FEATURE_EXCLUDE]
 
-train = ensure_seq_string(train, seq_col)
-test  = ensure_seq_string(test,  seq_col)
+# num_cols = feature_cols - cat_cols
+num_cols = [c for c in feature_cols if c not in cat_cols]
 
-# -----------------------
-# 3) 피처 열 결정
-# -----------------------
-all_cols = [c for c in train.columns if c not in FEATURE_EXCLUDE]  # train 기준
-# cat은 고정 셋, num은 나머지
-cat_cols = [c for c in cat_cols_fixed if c in all_cols]
-num_cols = [c for c in all_cols if c not in cat_cols]
+# ======================
+# 4) Categorical encoding (train+test 결합으로 fit)
+# ======================
+def encode_categoricals(train_df, valid_df, test_df, cat_cols):
+    encoders = {}
+    for col in cat_cols:
+        le = LabelEncoder()
+        # NaN 처리 후 문자열화 (fillna를 먼저!)
+        all_vals = pd.concat(
+            [train_df.get(col, pd.Series(dtype=object)),
+             valid_df.get(col, pd.Series(dtype=object)),
+             test_df.get(col,  pd.Series(dtype=object))],
+            axis=0
+        ).fillna("UNK").astype(str)
+        le.fit(all_vals)
 
-# -----------------------
-# 4) 카테고리 라벨인코딩 (train+test 합쳐서)
-# -----------------------
-encoders = {}
-for col in cat_cols:
-    le = LabelEncoder()
-    # train+test 합쳐서 fit, NaN -> "UNK"
-    all_vals = pd.concat([train[col], test[col]], axis=0)
-    all_vals = all_vals.astype(str).fillna("UNK")
-    le.fit(all_vals)
-    # transform
-    train[col] = le.transform(train[col].astype(str).fillna("UNK")).astype(np.int32)
-    test[col]  = le.transform(test[col].astype(str).fillna("UNK")).astype(np.int32)
-    encoders[col] = le
+        if col in train_df.columns:
+            train_df[col] = le.transform(train_df[col].fillna("UNK").astype(str))
+        else:
+            train_df[col] = 0
 
-# -----------------------
-# 5) 수치형 처리 (no scaling)
-# -----------------------
-for col in num_cols:
-    # 결측 0, float32
-    train[col] = pd.to_numeric(train[col], errors="coerce").fillna(0).astype(np.float32)
-    test[col]  = pd.to_numeric(test[col],  errors="coerce").fillna(0).astype(np.float32)
+        if col in valid_df.columns:
+            valid_df[col] = le.transform(valid_df[col].fillna("UNK").astype(str))
+        else:
+            valid_df[col] = 0
 
-# -----------------------
-# 6) 라벨/타입 정리
-# -----------------------
-assert target_col in train.columns, f"{target_col} not in train!"
-train[target_col] = pd.to_numeric(train[target_col], errors="coerce").fillna(0).astype(np.float32)
+        if col in test_df.columns:
+            test_df[col]  = le.transform(test_df[col].fillna("UNK").astype(str))
+        else:
+            test_df[col] = 0
 
-# 컬럼 순서: train -> [clicked] + [num_cols + cat_cols + seq]
-train_cols_order = [target_col] + num_cols + cat_cols + [seq_col]
-test_cols_order  = num_cols + cat_cols + [seq_col]
+        encoders[col] = le
+        print(f"[Enc] {col} classes = {len(le.classes_)}")
+    return train_df, valid_df, test_df, encoders
 
-# 누락 열(드물게 있을 수 있음) 0/"" 채움
-def ensure_columns(df, cols, num_cols, cat_cols, seq_col, has_target):
-    for c in cols:
-        if c not in df.columns:
-            if c == seq_col:
-                df[c] = ""
-            elif c in num_cols:
-                df[c] = np.float32(0.0)
-            elif c in cat_cols:
-                df[c] = np.int32(0)
-            elif has_target and c == target_col:
-                df[c] = np.float32(0.0)
-    return df[cols]
+train_df, valid_df, test_df, cat_encoders = encode_categoricals(train_df.copy(), valid_df.copy(), test_df.copy(), cat_cols)
 
-train_out = ensure_columns(train, train_cols_order, num_cols, cat_cols, seq_col, has_target=True)
-test_out  = ensure_columns(test,  test_cols_order,  num_cols, cat_cols, seq_col, has_target=False)
+# ======================
+# 5) Numeric casting (간단: float32)
+# ======================
+def cast_numeric_inplace(df, num_cols):
+    for c in num_cols:
+        if c in df.columns:
+            df[c] = pd.to_numeric(df[c], errors='coerce').fillna(0).astype('float32')
+        else:
+            df[c] = np.float32(0.0)
 
-# -----------------------
-# 7) 저장
-# -----------------------
-train_out.to_parquet(out_dir / "train.parquet", index=False)
-test_out.to_parquet(out_dir / "test.parquet",  index=False)
+cast_numeric_inplace(train_df, num_cols)
+cast_numeric_inplace(valid_df, num_cols)
+cast_numeric_inplace(test_df,  num_cols)
 
-print("✔ Saved:", out_dir / "train.parquet")
-print("✔ Saved:", out_dir / "test.parquet")
+# ======================
+# 6) 카테고리/라벨 캐스팅
+# ======================
+for c in cat_cols:
+    train_df[c] = train_df[c].astype("int32")
+    valid_df[c] = valid_df[c].astype("int32")
+    test_df[c]  = test_df[c].astype("int32")
 
-# -----------------------
-# 8) 메타 저장(재현용, 선택)
-# -----------------------
-meta = {
-    "cat_cols": cat_cols,
-    "num_cols": num_cols,
-    "seq_col": seq_col,
-    "target_col": target_col,
-    "encoders": {
-        c: encoders[c].classes_.tolist() for c in encoders
-    },
-    "dtypes": {
-        "train": {c: str(train_out[c].dtype) for c in train_out.columns},
-        "test":  {c: str(test_out[c].dtype)  for c in test_out.columns},
-    }
-}
-import json
-with open(out_dir / "ctr_preproc_meta.json", "w", encoding="utf-8") as f:
-    json.dump(meta, f, ensure_ascii=False, indent=2)
-print("✔ Saved meta:", out_dir / "ctr_preproc_meta.json")
+train_df[label_col] = pd.to_numeric(train_df[label_col], errors='coerce').fillna(0).astype('float32')
+valid_df[label_col] = pd.to_numeric(valid_df[label_col], errors='coerce').fillna(0).astype('float32')
 
-# -----------------------
-# 9) feature_map.json 생성
-# -----------------------
-feature_cols = num_cols + cat_cols  # label/seq 제외
+# ======================
+# 7) 최종 컬럼 정렬 + seq 보존
+#     - feature_cols 는 라벨/seq/ID 제외 (모델 입력 피처)
+#     - 저장 파일에는 seq 컬럼을 **그대로 추가**하여 PyTorch에서 사용 가능하게 함
+# ======================
+def arrange_and_keep_seq(df, has_label=True):
+    cols_order = [label_col] + feature_cols if has_label else feature_cols
+    df_out = df[cols_order].copy()
+    # seq를 파일에 보존 (feature_map에는 포함하지 않음)
+    if seq_col in df.columns:
+        # 문자열로 통일 저장
+        df_out[seq_col] = df[seq_col].astype("string")
+    return df_out
+
+train_enc = arrange_and_keep_seq(train_df, has_label=True)
+valid_enc = arrange_and_keep_seq(valid_df, has_label=True)
+test_enc  = arrange_and_keep_seq(test_df,  has_label=False)
+
+# ======================
+# 8) Save
+# ======================
+train_enc.to_parquet(out_dir / 'train.parquet', index=False)
+valid_enc.to_parquet(out_dir / 'valid.parquet', index=False)
+
+# 테스트에는 라벨 0을 맨 앞에 추가(스키마 정렬 목적). seq는 그대로 유지.
+test_enc_with_label = test_enc.copy()
+test_enc_with_label.insert(0, label_col, np.zeros(len(test_enc), dtype=np.float32))
+test_enc_with_label.to_parquet(out_dir / 'test.parquet', index=False)
+
+print("✔ 최종 저장 완료:", out_dir)
+
+# ======================
+# 9) feature_map.json (LabelEncoder 방식에 맞춰 vocab_size=클래스 개수, padding_idx 생략)
+#     - feature_map에는 seq를 포함하지 않음
+# ======================
 features_list = []
 
-# categorical: vocab_size = LabelEncoder classes_ 개수
-for c in feature_cols:
-    if c in cat_cols:
-        vocab_size = len(encoders[c].classes_)
-        features_list.append({
-            c: {
-                "source": "",
-                "type": "categorical",
-                "padding_idx": 0,           # 0을 패딩/UNK로 쓰려면 인코딩 단계에서 0 예약이 필요함(현재는 0~(K-1) 사용)
-                "vocab_size": int(vocab_size)
-            }
-        })
-    else:
-        features_list.append({
-            c: {
-                "source": "",
-                "type": "numeric"
-            }
-        })
+# 카테고리 피처 메타
+for c in cat_cols:
+    vocab_size = int(len(cat_encoders[c].classes_))
+    features_list.append({
+        c: {
+            "source": "",
+            "type": "categorical",
+            "vocab_size": vocab_size
+        }
+    })
 
-# total_features = 모든 범주형 vocab_size의 합
-total_features = int(sum(
-    int(list(f.values())[0].get("vocab_size", 0)) for f in features_list
-))
+# 수치 피처 메타
+for c in num_cols:
+    features_list.append({
+        c: {
+            "source": "",
+            "type": "numeric"
+        }
+    })
 
 feature_map = {
-    "dataset_id": "toss_ctr_v1",             # 필요시 dataset_id 변수로 교체
-    "num_fields": len(feature_cols),
-    "total_features": total_features,
+    "dataset_id": dataset_id,
+    "num_fields": len(feature_cols),     # 모델 입력 피처 수 (seq 제외)
     "input_length": len(feature_cols),
-    "labels": [target_col],
+    "labels": [label_col],
     "features": features_list
+    # total_features(=임베딩 총크기)는 LabelEncoder 방식에선 꼭 필요하진 않아서 생략
 }
 
-with open(out_dir / "feature_map.json", "w", encoding="utf-8") as f:
+with open(out_dir / 'feature_map.json', 'w', encoding='utf-8') as f:
     json.dump(feature_map, f, ensure_ascii=False, indent=4)
 
-print("✔ feature_map.json 저장 완료:", out_dir / "feature_map.json")
-print("   num_fields =", feature_map["num_fields"],
-      " total_features =", feature_map["total_features"])
+print("✔ feature_map.json 저장 완료:", out_dir / 'feature_map.json')
+print("   num_fields =", feature_map['num_fields'])
+
+# ======================
+# 10) Checks
+# ======================
+print("\n[CHECK] 라벨 분포")
+print("train mean:", float(train_enc[label_col].mean()),
+      " valid mean:", float(valid_enc[label_col].mean()))
+print("train value_counts:\n", train_enc[label_col].value_counts())
+print("valid value_counts:\n", valid_enc[label_col].value_counts())
+
+print("\n[CHECK] Encoded dtypes(head)")
+print(train_enc.head(1).dtypes.to_string())
+
+print("\n[CHECK] Head with seq preserved")
+print(train_enc[[label_col] + cat_cols + num_cols + [seq_col]].head(2))

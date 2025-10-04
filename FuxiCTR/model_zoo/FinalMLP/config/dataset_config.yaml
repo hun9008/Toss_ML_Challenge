@@ -1,7 +1,7 @@
 ### Tiny data for tests only
-toss_ctr_v1:
+toss_ctr_v3:
     data_root: ../../data/
     data_format: parquet
-    train_data: ../../data/toss_ctr_v1/train.parquet
-    valid_data: ../../data/toss_ctr_v1/valid.parquet
-    test_data: ../../data/toss_ctr_v1/test.parquet
+    train_data: ../../data/toss_ctr_v3/train.parquet
+    valid_data: ../../data/toss_ctr_v3/valid.parquet
+    test_data: ../../data/toss_ctr_v3/test.parquet

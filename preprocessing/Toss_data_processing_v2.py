@@ -1,9 +1,3 @@
-# ======================
-# 0) Colab / Imports
-# ======================
-from google.colab import drive
-drive.mount('/content/drive')
-
 import pandas as pd
 from sklearn.model_selection import train_test_split
 from pathlib import Path
@@ -13,9 +7,10 @@ import numpy as np
 # ======================
 # 1) Paths & Load
 # ======================
-data_dir = Path('/content/drive/MyDrive/toss/data')
-dataset_id = 'toss_ctr_v1'
-out_dir = data_dir / dataset_id
+data_dir = Path('/home/hun/CTR_Prediction/Toss_ML_Challenge/data')
+FuxiCTR_data_dir = Path("/home/hun/CTR_Prediction/Toss_ML_Challenge/FuxiCTR/data")
+dataset_id = 'toss_ctr_v2'
+out_dir = FuxiCTR_data_dir / dataset_id
 out_dir.mkdir(parents=True, exist_ok=True)
 
 all_train = pd.read_parquet(data_dir / 'train.parquet', engine='pyarrow')

@@ -128,7 +128,7 @@ FinalMLP_test:
 
 FinalMLP:
     model: FinalMLP
-    dataset_id: toss_ctr_v1
+    dataset_id: toss_ctr_v3
     loss: binary_crossentropy
     # metrics: ['logloss', 'AUC']
     metrics: ['logloss', 'AUC', 'WLL', 'AP']
@@ -148,14 +148,14 @@ FinalMLP:
     use_fs: True
     fs_hidden_units: [1024, 512]
     fs1_context: ['hour', 'gender', 'age_group', 'day_of_week']
-    fs2_context: ['inventory_id']
+    fs2_context: ['inventory_id', 'l_feat_14']
     num_heads: 2
     batch_size: 10000
     embedding_dim: 16
     epochs: 100
     shuffle: True
     seed: 20222023
-    # monitor: {'AUC': 1, 'logloss': -1}
-    # monitor_mode: 'max'
-    monitor: 'WLL' 
-    monitor_mode: 'min'
+    monitor: {'AUC': 1, 'logloss': -1}
+    monitor_mode: 'max'
+    # monitor: 'WLL' 
+    # monitor_mode: 'min'
